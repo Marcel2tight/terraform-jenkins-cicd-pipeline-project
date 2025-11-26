@@ -2,79 +2,110 @@ def COLOR_MAP = [
     'SUCCESS': 'good',
     'FAILURE': 'danger',
     'UNSTABLE': 'danger',
-    'ABORTED': 'warning' // Added ABORTED to handle manual aborts/interrupts gracefully
+    'ABORTED': 'warning'
 ]
 
 pipeline {
     agent any
     
-    // 1. ENVIRONMENT BLOCK: Define secrets and channels securely
     environment {
-        // This is the correct channel name we set up
         SLACK_CHANNEL = '#deploy-infra-project' 
-        // This MUST match the ID of the secret text credential ('xoxb-') you saved in Jenkins
-        SLACK_CREDENTIAL_ID = 'SLACK_BOT_TOKEN' 
+        SLACK_CREDENTIAL_ID = 'SLACK_BOT_TOKEN'
+        GCP_CREDENTIAL_ID = 'gcp-jenkins-terraform'  // This must match the credential ID you just created
     }
 
     stages {
-        // Verifying terraform setup
+        stage('GCP Authentication') {
+            steps {
+                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
+                    sh '''
+                        echo "Setting up GCP authentication..."
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
+                        echo "Service account: $(cat $GCP_KEY_FILE | jq -r '.client_email')"
+                        echo "Authentication configured successfully"
+                    '''
+                }
+            }
+        }
+
         stage('Confirm Tools Installations') {
             steps {
                 sh 'terraform version'
             }
         }
-        // Initialize Terraform
+
         stage('Initialize Terraform Environment') {
             steps {
-                sh 'terraform init'
+                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
+                    sh '''
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
+                        terraform init
+                    '''
+                }
             }
         }
-        // Check terraform configurations syntax
+
         stage('Validate Terraform Configurations') {
             steps {
-                sh 'terraform validate'
+                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
+                    sh '''
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
+                        terraform validate
+                    '''
+                }
             }
         }
-        // Generating Execution Plan
+
         stage('Generate Terraform Plan') {
             steps {
-                sh 'terraform plan'
+                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
+                    sh '''
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
+                        terraform plan
+                    '''
+                }
             }
         }
-        // Deployment Approval
+
         stage('Manual Approval') {
             steps {
-                input 'Approval Infra Deployment'
+                input 'Approve Infrastructure Deployment?'
             }
         }
-        // Deploy Terraform Infrastructure (Uncommented for execution after approval)
+
         stage('Deploy Infrastructure') {
             steps {
-                sh 'terraform apply --auto-approve'
+                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
+                    sh '''
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
+                        terraform apply --auto-approve
+                    '''
+                }
             }
         }
-        // Destroy Environment
+
+        // Optional: Keep or remove the destroy stage based on your needs
         stage('Terraform Destroy') {
             steps {
-                sh 'terraform destroy --auto-approve'
+                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
+                    sh '''
+                        export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
+                        terraform destroy --auto-approve
+                    '''
+                }
             }
         }
     }
     
     post {
-        // 2. ENSURE NOTIFICATION IS ALWAYS SENT AND CLEANUP OCCURS
         always {
             echo 'Sending Slack Notification...'
-            
-            // CORRECTED slackSend: Uses environment variables and includes the token ID
             slackSend (
-                channel: env.SLACK_CHANNEL, // Uses the dynamic channel name
-                tokenCredentialId: env.SLACK_CREDENTIAL_ID, // Securely loads the xoxb- token
+                channel: env.SLACK_CHANNEL,
+                tokenCredentialId: env.SLACK_CREDENTIAL_ID,
                 color: COLOR_MAP[currentBuild.currentResult] ?: 'warning',
-                message: "*${currentBuild.currentResult}:* Job Name '${env.JOB_NAME}' build ${env.BUILD_NUMBER} \n Build Timestamp: ${env.BUILD_TIMESTAMP} \n Project Workspace: ${env.WORKSPACE} \n More info at: ${env.BUILD_URL}"
+                message: "*${currentBuild.currentResult}:* Job Name '${env.JOB_NAME}' build ${env.BUILD_NUMBER} \n More info at: ${env.BUILD_URL}"
             )
-            
-            // Clean up the workspace files after the build finishes
             cleanWs()
         }
     }

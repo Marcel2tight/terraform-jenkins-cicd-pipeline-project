@@ -14,7 +14,7 @@ terraform {
 # Terraform Provider Block
 provider "google" {
   # Configuratio options
-  project     = "resolute-world-468820-j7"
+  project     = "quixotic-sunset-479410-d5"
   region      = "us-central1"
   zone        = "us-central1-a"
 }
