@@ -14,7 +14,7 @@ terraform {
 # Terraform Provider Block
 provider "google" {
   # Configuratio options
-  project     = "evident-display-449910-v6"
+  project     = "resolute-world-468820-j7"
   region      = "us-central1"
   zone        = "us-central1-a"
 }
