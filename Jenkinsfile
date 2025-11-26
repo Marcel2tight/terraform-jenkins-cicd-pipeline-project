@@ -11,7 +11,7 @@ pipeline {
     environment {
         SLACK_CHANNEL = '#deploy-infra-project' 
         SLACK_CREDENTIAL_ID = 'SLACK_BOT_TOKEN'
-        GCP_CREDENTIAL_ID = 'gcp-jenkins-terraform'  // This must match the credential ID you just created
+        GCP_CREDENTIAL_ID = 'gcp-jenkins-terraform'
     }
 
     stages {
@@ -67,9 +67,11 @@ pipeline {
             }
         }
 
-        stage('Manual Approval') {
+        stage('Manual Approval - DEPLOY') {
             steps {
-                input 'Approve Infrastructure Deployment?'
+                input message: 'Approve Infrastructure DEPLOYMENT?', 
+                      ok: 'Deploy',
+                      submitterParameter: 'approver'
             }
         }
 
@@ -84,7 +86,15 @@ pipeline {
             }
         }
 
-        // Optional: Keep or remove the destroy stage based on your needs
+        // DESTROY with safety approvals
+        stage('Manual Approval - DESTROY') {
+            steps {
+                input message: '🚨 DANGER: Approve Infrastructure DESTRUCTION? This will DELETE all resources!', 
+                      ok: 'DESTROY',
+                      submitterParameter: 'destroy_approver'
+            }
+        }
+
         stage('Terraform Destroy') {
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
