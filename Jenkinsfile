@@ -28,23 +28,42 @@ pipeline {
             }
         }
 
-        // ADD THE RESOURCE CHECK STAGE HERE
-        stage('Check If Resources Exist') {
+        // FIXED: Resource Check that fails early if conflicts exist
+        stage('Check Resource Conflicts') {
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     script {
                         sh '''
                             export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
                         '''
+                        
+                        // Check if VM exists
                         try {
                             sh '''
-                                gcloud compute instances describe terraform-vm --zone=us-central1-b > /dev/null 2>&1
-                                echo "⚠️  Resources already exist - will skip create and proceed to destroy"
+                                gcloud compute instances describe terraform-vm --zone=us-central1-b --quiet
                             '''
-                            env.SKIP_CREATE = "true"
+                            error "❌ VM 'terraform-vm' already exists! Run destroy pipeline first or delete manually."
                         } catch (Exception e) {
-                            echo "✅ Resources don't exist - proceeding with normal create/destroy flow"
-                            env.SKIP_CREATE = "false"
+                            echo "✅ VM check passed - no conflicts"
+                        }
+                        
+                        // Check if storage buckets exist
+                        try {
+                            sh '''
+                                gcloud storage buckets describe gs://prod-no-public-access-bucket-po-0 --quiet
+                            '''
+                            error "❌ Storage bucket 'prod-no-public-access-bucket-po-0' already exists!"
+                        } catch (Exception e) {
+                            echo "✅ Storage bucket check 1 passed"
+                        }
+                        
+                        try {
+                            sh '''
+                                gcloud storage buckets describe gs://prod-no-public-access-bucket-po-1 --quiet
+                            '''
+                            error "❌ Storage bucket 'prod-no-public-access-bucket-po-1' already exists!"
+                        } catch (Exception e) {
+                            echo "✅ Storage bucket check 2 passed"
                         }
                     }
                 }
@@ -68,10 +87,8 @@ pipeline {
             }
         }
 
+        // ... rest of your stages remain the same ...
         stage('Validate Terraform Configurations') {
-            when {
-                expression { env.SKIP_CREATE == "false" }
-            }
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
@@ -83,9 +100,6 @@ pipeline {
         }
 
         stage('Generate Terraform Plan') {
-            when {
-                expression { env.SKIP_CREATE == "false" }
-            }
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
@@ -97,9 +111,6 @@ pipeline {
         }
 
         stage('Manual Approval - DEPLOY') {
-            when {
-                expression { env.SKIP_CREATE == "false" }
-            }
             steps {
                 input message: 'Approve Infrastructure DEPLOYMENT?', 
                       ok: 'Deploy',
@@ -108,9 +119,6 @@ pipeline {
         }
 
         stage('Deploy Infrastructure') {
-            when {
-                expression { env.SKIP_CREATE == "false" }
-            }
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
@@ -121,14 +129,8 @@ pipeline {
             }
         }
 
-        // ALWAYS show destroy stages, but skip if nothing was created
         stage('Manual Approval - DESTROY') {
             steps {
-                script {
-                    if (env.SKIP_CREATE == "true") {
-                        echo "🚨 DESTROY ONLY MODE: Resources already exist from previous run"
-                    }
-                }
                 input message: '🚨 DANGER: Approve Infrastructure DESTRUCTION? This will DELETE all resources!', 
                       ok: 'DESTROY',
                       submitterParameter: 'destroy_approver'
