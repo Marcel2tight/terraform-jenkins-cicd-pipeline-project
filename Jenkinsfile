@@ -15,11 +15,15 @@ pipeline {
     }
 
     stages {
-        // CRITICAL: Clean workspace first
-        stage('Clean Workspace') {
+        stage('Clean Terraform State') {
             steps {
-                cleanWs()
-                sh 'echo "✅ Fresh workspace ready"'
+                sh '''
+                    echo "🧹 Cleaning previous Terraform state only"
+                    rm -rf .terraform
+                    rm -f *.tfstate*
+                    echo "✅ Configuration files present:"
+                    ls -la *.tf
+                '''
             }
         }
 
