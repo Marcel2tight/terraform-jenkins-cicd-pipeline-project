@@ -1,5 +1,37 @@
+# ================================
+# CREDENTIALS & SECRET FILES
+# ================================
 jenkins-key.json
 *.json
 *.key
 *.pem
 *.priv
+*.crt
+*.cer
+service-account-*.json
+*-key.json
+
+# ================================
+# TERRAFORM STATE & CACHE
+# ================================
+*.tfstate
+*.tfstate.*
+.terraform/
+terraform.tfstate.d/
+*.terraform.lock.hcl
+
+# ================================
+# ENVIRONMENT & EDITOR FILES
+# ================================
+.env
+.env.local
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ================================
+# OS GENERATED FILES
+# ================================
+.DS_Store
+Thumbs.db

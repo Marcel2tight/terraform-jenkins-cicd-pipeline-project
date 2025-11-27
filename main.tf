@@ -1,26 +1,21 @@
-# GCE Instance
-# Use Service Accounts When Running Terraform Using a GCP Resource (GCE VM's)
-resource "google_compute_instance" "terraform-vm-instance" {
+# VM Instance using module
+module "vm_instance" {
+  source = "./modules/vm"
+
   name         = var.dev-vm-name
   machine_type = var.dev-vm-machine-type
   zone         = var.dev-vm-az
-  # tags = ["ssh-access", "httpd-access"]
-  boot_disk { # Required 
-    initialize_params {
-      image = var.dev-vm-image
-    }
-  }
-  network_interface { # Required 
-    network = var.dev-vm-network
-    access_config {
-      // Ephemeral public IP
-    }
-  }
+  image        = var.dev-vm-image
+  network      = var.dev-vm-network
+  project_id   = var.project_id
 }
 
-resource "google_storage_bucket" "prod-private-buckets" {
-  name          = "prod-no-public-access-bucket-po-${count.index}"
-  location      = "US"
+# Storage Buckets using module
+module "storage_buckets" {
+  source = "./modules/storage"
+
+  bucket_names = [for i in range(2) : "prod-no-public-access-bucket-po-${i}"]
+  location     = "US"
+  project_id   = var.project_id
   force_destroy = true
-  count         = 2
 }
