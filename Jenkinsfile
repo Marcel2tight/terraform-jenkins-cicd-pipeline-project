@@ -15,68 +15,26 @@ pipeline {
     }
 
     stages {
+        // CRITICAL: Clean workspace first
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+                sh 'echo "✅ Fresh workspace ready"'
+            }
+        }
+
         stage('GCP Authentication') {
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
-                        echo "Setting up GCP authentication..."
                         export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
-                        echo "Service account: $(cat $GCP_KEY_FILE | jq -r '.client_email')"
-                        echo "Authentication configured successfully"
+                        echo "Authenticated as: $(cat $GCP_KEY_FILE | jq -r '.client_email')"
                     '''
                 }
             }
         }
 
-        // FIXED: Resource Check that fails early if conflicts exist
-        stage('Check Resource Conflicts') {
-            steps {
-                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
-                    script {
-                        sh '''
-                            export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
-                        '''
-                        
-                        // Check if VM exists
-                        try {
-                            sh '''
-                                gcloud compute instances describe terraform-vm --zone=us-central1-b --quiet
-                            '''
-                            error "❌ VM 'terraform-vm' already exists! Run destroy pipeline first or delete manually."
-                        } catch (Exception e) {
-                            echo "✅ VM check passed - no conflicts"
-                        }
-                        
-                        // Check if storage buckets exist
-                        try {
-                            sh '''
-                                gcloud storage buckets describe gs://prod-no-public-access-bucket-po-0 --quiet
-                            '''
-                            error "❌ Storage bucket 'prod-no-public-access-bucket-po-0' already exists!"
-                        } catch (Exception e) {
-                            echo "✅ Storage bucket check 1 passed"
-                        }
-                        
-                        try {
-                            sh '''
-                                gcloud storage buckets describe gs://prod-no-public-access-bucket-po-1 --quiet
-                            '''
-                            error "❌ Storage bucket 'prod-no-public-access-bucket-po-1' already exists!"
-                        } catch (Exception e) {
-                            echo "✅ Storage bucket check 2 passed"
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Confirm Tools Installations') {
-            steps {
-                sh 'terraform version'
-            }
-        }
-
-        stage('Initialize Terraform Environment') {
+        stage('Terraform Init') {
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
@@ -87,19 +45,7 @@ pipeline {
             }
         }
 
-        // ... rest of your stages remain the same ...
-        stage('Validate Terraform Configurations') {
-            steps {
-                withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
-                    sh '''
-                        export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
-                        terraform validate
-                    '''
-                }
-            }
-        }
-
-        stage('Generate Terraform Plan') {
+        stage('Terraform Plan') {
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
@@ -112,18 +58,16 @@ pipeline {
 
         stage('Manual Approval - DEPLOY') {
             steps {
-                input message: 'Approve Infrastructure DEPLOYMENT?', 
-                      ok: 'Deploy',
-                      submitterParameter: 'approver'
+                input 'Approve Deployment?'
             }
         }
 
-        stage('Deploy Infrastructure') {
+        stage('Terraform Apply') {
             steps {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
                         export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
-                        terraform apply --auto-approve
+                        terraform apply -auto-approve
                     '''
                 }
             }
@@ -131,9 +75,7 @@ pipeline {
 
         stage('Manual Approval - DESTROY') {
             steps {
-                input message: '🚨 DANGER: Approve Infrastructure DESTRUCTION? This will DELETE all resources!', 
-                      ok: 'DESTROY',
-                      submitterParameter: 'destroy_approver'
+                input 'Approve Destruction?'
             }
         }
 
@@ -142,7 +84,7 @@ pipeline {
                 withCredentials([file(credentialsId: env.GCP_CREDENTIAL_ID, variable: 'GCP_KEY_FILE')]) {
                     sh '''
                         export GOOGLE_APPLICATION_CREDENTIALS="$GCP_KEY_FILE"
-                        terraform destroy --auto-approve
+                        terraform destroy -auto-approve
                     '''
                 }
             }
@@ -151,14 +93,12 @@ pipeline {
     
     post {
         always {
-            echo 'Sending Slack Notification...'
             slackSend (
                 channel: env.SLACK_CHANNEL,
                 tokenCredentialId: env.SLACK_CREDENTIAL_ID,
                 color: COLOR_MAP[currentBuild.currentResult] ?: 'warning',
-                message: "*${currentBuild.currentResult}:* Job Name '${env.JOB_NAME}' build ${env.BUILD_NUMBER} \n More info at: ${env.BUILD_URL}"
+                message: "*${currentBuild.currentResult}:* ${env.JOB_NAME} #${env.BUILD_NUMBER}"
             )
-            cleanWs()
         }
     }
 }
